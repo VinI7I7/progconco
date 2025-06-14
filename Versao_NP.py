@@ -1,300 +1,263 @@
+# Versao_NP.py
+# Autor: Gemini (Aluno Dedicado)
+# Data: 14/06/2025
+# Descrição: VERSÃO FINAL CORRIGIDA do script NÃO-PARALELO (serial).
+#            - Contém todas as correções de leitura de arquivo e de lógica de seleção de tribunais.
+#            - Serve como base de comparação de desempenho com a Versão_P.py.
+
 import pandas as pd
-import numpy as np
-import glob
-import matplotlib.pyplot as plt
 import os
+import glob
+import numpy as np
+import matplotlib.pyplot as plt
 import time
 
-# ==============================================================================
-# FUNÇÕES DE CÁLCULO DE METAS POR RAMO DA JUSTIÇA (VERSÃO CORRIGIDA)
-# Adicionada verificação de existência de colunas para evitar KeyError.
-# ==============================================================================
+# --- FUNÇÕES UTILITÁRIAS ---
+def safe_sum(df, column_name):
+    """
+    Soma uma coluna de forma segura, retornando 0 se a coluna não existir no DataFrame.
+    Isso torna o script robusto para diferentes arquivos CSV que podem não ter todas as metas.
+    """
+    if column_name in df.columns:
+        return pd.to_numeric(df[column_name], errors='coerce').fillna(0).sum()
+    return 0
 
-def calcular_meta_generica(df, col_julg, col_dist, col_susp, fator_mult):
-    """Função genérica para calcular a maioria das metas."""
-    julgados = pd.to_numeric(df[col_julg], errors='coerce').sum()
-    distribuidos = pd.to_numeric(df[col_dist], errors='coerce').sum()
-    suspensos = pd.to_numeric(df[col_susp], errors='coerce').sum()
+def calculate_performance(numerator, denominator):
+    """Calcula a performance, tratando a divisão por zero para evitar erros."""
+    if denominator == 0:
+        return 0.0
+    return numerator / denominator
 
-    denominador = distribuidos - suspensos
-    if denominador == 0:
-        return np.nan
-    
-    return (julgados / denominador) * fator_mult
-
-def calcular_metas_justica_estadual(df):
-    """Calcula as metas específicas para a Justiça Estadual."""
-    metas = {}
-    
-    # Meta 1
-    cols_m1 = ['julgados_2025', 'casos_novos_2025', 'dessobrestados_2025', 'suspensos_2025']
-    if all(col in df.columns for col in cols_m1):
-        julgados = pd.to_numeric(df['julgados_2025'], errors='coerce').sum()
-        casos_novos = pd.to_numeric(df['casos_novos_2025'], errors='coerce').sum()
-        dessobrestados = pd.to_numeric(df['dessobrestados_2025'], errors='coerce').sum()
-        suspensos_m1 = pd.to_numeric(df['suspensos_2025'], errors='coerce').sum()
-        denominador_m1 = casos_novos + dessobrestados - suspensos_m1
-        metas['meta1'] = (julgados / denominador_m1) * 100 if denominador_m1 > 0 else np.nan
+def apply_formula(df, result_dict, meta_name, num_col, den_cols, multiplier, den_type='sub'):
+    """Função genérica para aplicar uma fórmula de cálculo e armazenar o resultado."""
+    numerator = safe_sum(df, num_col)
+    if den_type == 'add':
+        denominator = safe_sum(df, den_cols[0]) + safe_sum(df, den_cols[1]) - safe_sum(df, den_cols[2])
     else:
-        metas['meta1'] = np.nan
+        denominator = safe_sum(df, den_cols[0]) - safe_sum(df, den_cols[1])
+    performance = calculate_performance(numerator, denominator)
+    result_dict[meta_name] = performance * multiplier
 
-    # Dicionário de metas e suas colunas/fatores necessários
-    mapa_metas = {
-        'meta2a': (['julgadom2_a', 'dism2_a', 'susm2_a'], (1000/8)),
-        'meta2b': (['julgadom2_b', 'dism2_b', 'susm2_b'], (1000/9)),
-        'meta4a': (['julgadom4_a', 'dism4_a', 'susm4_a'], (1000/6.5)),
-        'meta4b': (['julgadom4_b', 'dism4_b', 'susm4_b'], 100),
-        'meta6': (['julgadom6', 'dism6', 'susm6'], 100),
-        'meta8a': (['julgadom8_a', 'dism8_a', 'susm8_a'], (1000/7.5)),
-        'meta8b': (['julgadom8_b', 'dism8_b', 'susm8_b'], (1000/9)),
-    }
+# --- FUNÇÕES DE CÁLCULO PARA CADA RAMO DA JUSTIÇA ---
+def calcular_metas_estadual(df_tribunal):
+    """Calcula todas as metas para a Justiça Estadual."""
+    results = {'sigla_tribunal': df_tribunal['sigla_tribunal'].iloc[0]}
+    apply_formula(df_tribunal, results, 'Meta 1', 'julgados_2025', ['casos_novos_2025', 'dessobrestados_2025', 'suspensos_2025'], 100, den_type='add')
+    apply_formula(df_tribunal, results, 'Meta 2A', 'julgm2_a', ['distm2_a', 'suspm2_a'], 1000 / 8)
+    apply_formula(df_tribunal, results, 'Meta 2B', 'julgm2_b', ['distm2_b', 'suspm2_b'], 1000 / 9)
+    apply_formula(df_tribunal, results, 'Meta 2C', 'julgm2_c', ['distm2_c', 'suspm2_c'], 1000 / 9.5)
+    apply_formula(df_tribunal, results, 'Meta 2ANT', 'julgm2_ant', ['distm2_ant', 'suspm2_ant'], 100)
+    apply_formula(df_tribunal, results, 'Meta 4A', 'julgm4_a', ['distm4_a', 'suspm4_a'], 1000 / 6.5)
+    apply_formula(df_tribunal, results, 'Meta 4B', 'julgm4_b', ['distm4_b', 'suspm4_b'], 100)
+    apply_formula(df_tribunal, results, 'Meta 6', 'julgm6_a', ['distm6_a', 'suspm6_a'], 100)
+    apply_formula(df_tribunal, results, 'Meta 7A', 'julgm7_a', ['distm7_a', 'suspm7_a'], 1000 / 5)
+    apply_formula(df_tribunal, results, 'Meta 7B', 'julgm7_b', ['distm7_b', 'suspm7_b'], 1000 / 5)
+    apply_formula(df_tribunal, results, 'Meta 8A', 'julgm8_a', ['distm8_a', 'suspm8_a'], 1000 / 7.5)
+    apply_formula(df_tribunal, results, 'Meta 8B', 'julgm8_b', ['distm8_b', 'suspm8_b'], 1000 / 9)
+    apply_formula(df_tribunal, results, 'Meta 10A', 'julgm10_a', ['distm10_a', 'suspm10_a'], 1000 / 9)
+    apply_formula(df_tribunal, results, 'Meta 10B', 'julgm10_b', ['distm10_b', 'suspm10_b'], 1000 / 10)
+    return results
 
-    for meta_nome, (cols, fator) in mapa_metas.items():
-        if all(col in df.columns for col in cols):
-            metas[meta_nome] = calcular_meta_generica(df, cols[0], cols[1], cols[2], fator)
-        else:
-            metas[meta_nome] = np.nan
-            
-    return metas
+def calcular_metas_eleitoral(df_tribunal):
+    """Calcula todas as metas para a Justiça Eleitoral."""
+    results = {'sigla_tribunal': df_tribunal['sigla_tribunal'].iloc[0]}
+    apply_formula(df_tribunal, results, 'Meta 1', 'julgados_2025', ['casos_novos_2025', 'dessobrestados_2025', 'suspensos_2025'], 100, den_type='add')
+    apply_formula(df_tribunal, results, 'Meta 2A', 'julgm2_a', ['distm2_a', 'suspm2_a'], 1000 / 7.0)
+    apply_formula(df_tribunal, results, 'Meta 2B', 'julgm2_b', ['distm2_b', 'suspm2_b'], 1000 / 9.9)
+    apply_formula(df_tribunal, results, 'Meta 2ANT', 'julgm2_ant', ['distm2_ant', 'suspm2_ant'], 100)
+    apply_formula(df_tribunal, results, 'Meta 4A', 'julgm4_a', ['distm4_a', 'suspm4_a'], 1000 / 9)
+    apply_formula(df_tribunal, results, 'Meta 4B', 'julgm4_b', ['distm4_b', 'suspm4_b'], 1000 / 5)
+    return results
 
-def calcular_metas_justica_trabalho(df):
-    """Calcula as metas específicas para a Justiça do Trabalho."""
-    metas = {}
-    cols_m1 = ['julgados_2025', 'casos_novos_2025', 'dessobrestados_2025', 'suspensos_2025']
-    if all(col in df.columns for col in cols_m1):
-        julgados = pd.to_numeric(df['julgados_2025'], errors='coerce').sum()
-        casos_novos = pd.to_numeric(df['casos_novos_2025'], errors='coerce').sum()
-        dessobrestados = pd.to_numeric(df['dessobrestados_2025'], errors='coerce').sum()
-        suspensos_m1 = pd.to_numeric(df['suspensos_2025'], errors='coerce').sum()
-        denominador_m1 = casos_novos + dessobrestados - suspensos_m1
-        metas['meta1'] = (julgados / denominador_m1) * 100 if denominador_m1 > 0 else np.nan
-    else:
-        metas['meta1'] = np.nan
+def calcular_metas_trabalho(df_tribunal):
+    """Calcula todas as metas para a Justiça do Trabalho."""
+    results = {'sigla_tribunal': df_tribunal['sigla_tribunal'].iloc[0]}
+    apply_formula(df_tribunal, results, 'Meta 1', 'julgados_2025', ['casos_novos_2025', 'dessobrestados_2025', 'suspensos_2025'], 100, den_type='add')
+    apply_formula(df_tribunal, results, 'Meta 2A', 'julgm2_a', ['distm2_a', 'suspm2_a'], 1000 / 9.4)
+    apply_formula(df_tribunal, results, 'Meta 2ANT', 'julgm2_ant', ['distm2_ant', 'suspm2_ant'], 100)
+    return results
 
-    cols_m2a = ['julgadom2_a', 'dism2_a', 'susm2_a']
-    if all(col in df.columns for col in cols_m2a):
-        metas['meta2a'] = calcular_meta_generica(df, cols_m2a[0], cols_m2a[1], cols_m2a[2], (1000/9.4))
-    else:
-        metas['meta2a'] = np.nan
-        
-    return metas
+def calcular_metas_federal(df_tribunal):
+    """Calcula todas as metas para a Justiça Federal."""
+    results = {'sigla_tribunal': df_tribunal['sigla_tribunal'].iloc[0]}
+    apply_formula(df_tribunal, results, 'Meta 1', 'julgados_2025', ['casos_novos_2025', 'dessobrestados_2025', 'suspensos_2025'], 100, den_type='add')
+    apply_formula(df_tribunal, results, 'Meta 2A', 'julgm2_a', ['distm2_a', 'suspm2_a'], 1000 / 8.5)
+    apply_formula(df_tribunal, results, 'Meta 2B', 'julgm2_b', ['distm2_b', 'suspm2_b'], 100)
+    apply_formula(df_tribunal, results, 'Meta 2ANT', 'julgm2_ant', ['distm2_ant', 'suspm2_ant'], 100)
+    apply_formula(df_tribunal, results, 'Meta 4A', 'julgm4_a', ['distm4_a', 'suspm4_a'], 1000 / 7)
+    apply_formula(df_tribunal, results, 'Meta 4B', 'julgm4_b', ['distm4_b', 'suspm4_b'], 100)
+    apply_formula(df_tribunal, results, 'Meta 6', 'julgm6_a', ['distm6_a', 'suspm6_a'], 1000 / 3.5)
+    apply_formula(df_tribunal, results, 'Meta 7A', 'julgm7_a', ['distm7_a', 'suspm7_a'], 1000 / 3.5)
+    apply_formula(df_tribunal, results, 'Meta 7B', 'julgm7_b', ['distm7_b', 'suspm7_b'], 1000 / 3.5)
+    apply_formula(df_tribunal, results, 'Meta 8A', 'julgm8_a', ['distm8_a', 'suspm8_a'], 1000 / 7.5)
+    apply_formula(df_tribunal, results, 'Meta 8B', 'julgm8_b', ['distm8_b', 'suspm8_b'], 1000 / 9)
+    apply_formula(df_tribunal, results, 'Meta 10A', 'julgm10_a', ['distm10_a', 'suspm10_a'], 100)
+    return results
 
-def calcular_metas_justica_federal(df):
-    """Calcula as metas específicas para a Justiça Federal."""
-    metas = {}
-    cols_m1 = ['julgados_2025', 'casos_novos_2025', 'dessobrestados_2025', 'suspensos_2025']
-    if all(col in df.columns for col in cols_m1):
-        julgados = pd.to_numeric(df['julgados_2025'], errors='coerce').sum()
-        casos_novos = pd.to_numeric(df['casos_novos_2025'], errors='coerce').sum()
-        dessobrestados = pd.to_numeric(df['dessobrestados_2025'], errors='coerce').sum()
-        suspensos_m1 = pd.to_numeric(df['suspensos_2025'], errors='coerce').sum()
-        denominador_m1 = casos_novos + dessobrestados - suspensos_m1
-        metas['meta1'] = (julgados / denominador_m1) * 100 if denominador_m1 > 0 else np.nan
-    else:
-        metas['meta1'] = np.nan
+def calcular_metas_militar_uniao(df_tribunal):
+    """Calcula todas as metas para a Justiça Militar da União."""
+    results = {'sigla_tribunal': df_tribunal['sigla_tribunal'].iloc[0]}
+    apply_formula(df_tribunal, results, 'Meta 1', 'julgados_2025', ['casos_novos_2025', 'dessobrestados_2025', 'suspensos_2025'], 100, den_type='add')
+    apply_formula(df_tribunal, results, 'Meta 2A', 'julgm2_a', ['distm2_a', 'suspm2_a'], 1000 / 9.5)
+    apply_formula(df_tribunal, results, 'Meta 2B', 'julgm2_b', ['distm2_b', 'suspm2_b'], 1000 / 9.9)
+    apply_formula(df_tribunal, results, 'Meta 2ANT', 'julgm2_ant', ['distm2_ant', 'suspm2_ant'], 100)
+    apply_formula(df_tribunal, results, 'Meta 4A', 'julgm4_a', ['distm4_a', 'suspm4_a'], 1000 / 9.5)
+    apply_formula(df_tribunal, results, 'Meta 4B', 'julgm4_b', ['distm4_b', 'suspm4_b'], 1000 / 9.9)
+    return results
 
-    mapa_metas = {
-        'meta2a': (['julgadom2_a', 'dism2_a', 'susm2_a'], (1000/8.5)),
-        'meta4a': (['julgadom4_a', 'dism4_a', 'susm4_a'], (1000/7)),
-        'meta6': (['julgadom6', 'dism6', 'susm6'], (1000/3.5)),
-    }
-    
-    for meta_nome, (cols, fator) in mapa_metas.items():
-        if all(col in df.columns for col in cols):
-            metas[meta_nome] = calcular_meta_generica(df, cols[0], cols[1], cols[2], fator)
-        else:
-            metas[meta_nome] = np.nan
-            
-    return metas
-    
-def calcular_metas_justica_militar_estadual(df):
-    """Calcula as metas específicas para a Justiça Militar Estadual."""
-    metas = {}
-    cols_m1 = ['julgados_2025', 'casos_novos_2025', 'dessobrestados_2025', 'suspensos_2025']
-    if all(col in df.columns for col in cols_m1):
-        julgados = pd.to_numeric(df['julgados_2025'], errors='coerce').sum()
-        casos_novos = pd.to_numeric(df['casos_novos_2025'], errors='coerce').sum()
-        dessobrestados = pd.to_numeric(df['dessobrestados_2025'], errors='coerce').sum()
-        suspensos_m1 = pd.to_numeric(df['suspensos_2025'], errors='coerce').sum()
-        denominador_m1 = casos_novos + dessobrestados - suspensos_m1
-        metas['meta1'] = (julgados / denominador_m1) * 100 if denominador_m1 > 0 else np.nan
-    else:
-        metas['meta1'] = np.nan
-        
-    mapa_metas = {
-        'meta2a': (['julgadom2_a', 'dism2_a', 'susm2_a'], (1000/9)),
-        'meta4a': (['julgadom4_a', 'dism4_a', 'susm4_a'], (1000/9.5)),
-    }
+def calcular_metas_militar_estadual(df_tribunal):
+    """Calcula todas as metas para a Justiça Militar Estadual."""
+    results = {'sigla_tribunal': df_tribunal['sigla_tribunal'].iloc[0]}
+    apply_formula(df_tribunal, results, 'Meta 1', 'julgados_2025', ['casos_novos_2025', 'dessobrestados_2025', 'suspensos_2025'], 100, den_type='add')
+    apply_formula(df_tribunal, results, 'Meta 2A', 'julgm2_a', ['distm2_a', 'suspm2_a'], 1000 / 9)
+    apply_formula(df_tribunal, results, 'Meta 2B', 'julgm2_b', ['distm2_b', 'suspm2_b'], 1000 / 9.5)
+    apply_formula(df_tribunal, results, 'Meta 2ANT', 'julgm2_ant', ['distm2_ant', 'suspm2_ant'], 100)
+    apply_formula(df_tribunal, results, 'Meta 4A', 'julgm4_a', ['distm4_a', 'suspm4_a'], 1000 / 9.5)
+    apply_formula(df_tribunal, results, 'Meta 4B', 'julgm4_b', ['distm4_b', 'suspm4_b'], 1000 / 9.9)
+    return results
 
-    for meta_nome, (cols, fator) in mapa_metas.items():
-        if all(col in df.columns for col in cols):
-            metas[meta_nome] = calcular_meta_generica(df, cols[0], cols[1], cols[2], fator)
-        else:
-            metas[meta_nome] = np.nan
-            
-    return metas
+def calcular_metas_tst(df_tribunal):
+    """Calcula todas as metas para o Tribunal Superior do Trabalho."""
+    results = {'sigla_tribunal': df_tribunal['sigla_tribunal'].iloc[0]}
+    apply_formula(df_tribunal, results, 'Meta 1', 'julgados_2025', ['casos_novos_2025', 'dessobrestados_2025', 'suspensos_2025'], 100, den_type='add')
+    apply_formula(df_tribunal, results, 'Meta 2A', 'julgm2_a', ['distm2_a', 'suspm2_a'], 1000 / 9.5)
+    apply_formula(df_tribunal, results, 'Meta 2B', 'julgm2_b', ['distm2_b', 'suspm2_b'], 1000 / 9.9)
+    apply_formula(df_tribunal, results, 'Meta 2ANT', 'julgm2_ant', ['distm2_ant', 'suspm2_ant'], 100)
+    return results
 
-def calcular_metas_justica_eleitoral(df):
-    """Calcula as metas específicas para a Justiça Eleitoral."""
-    metas = {}
-    cols_m1 = ['julgados_2025', 'casos_novos_2025', 'dessobrestados_2025', 'suspensos_2025']
-    if all(col in df.columns for col in cols_m1):
-        julgados = pd.to_numeric(df['julgados_2025'], errors='coerce').sum()
-        casos_novos = pd.to_numeric(df['casos_novos_2025'], errors='coerce').sum()
-        dessobrestados = pd.to_numeric(df['dessobrestados_2025'], errors='coerce').sum()
-        suspensos_m1 = pd.to_numeric(df['suspensos_2025'], errors='coerce').sum()
-        denominador_m1 = casos_novos + dessobrestados - suspensos_m1
-        metas['meta1'] = (julgados / denominador_m1) * 100 if denominador_m1 > 0 else np.nan
-    else:
-        metas['meta1'] = np.nan
-        
-    mapa_metas = {
-        'meta2a': (['julgadom2_a', 'dism2_a', 'susm2_a'], (1000/7)),
-        'meta4a': (['julgadom4_a', 'dism4_a', 'susm4_a'], (1000/9)),
-        'meta4b': (['julgadom4_b', 'dism4_b', 'susm4_b'], (1000/5)),
-    }
-    
-    for meta_nome, (cols, fator) in mapa_metas.items():
-        if all(col in df.columns for col in cols):
-            metas[meta_nome] = calcular_meta_generica(df, cols[0], cols[1], cols[2], fator)
-        else:
-            metas[meta_nome] = np.nan
-            
-    return metas
+def calcular_metas_stj(df_tribunal):
+    """Calcula todas as metas para o Superior Tribunal de Justiça."""
+    results = {'sigla_tribunal': df_tribunal['sigla_tribunal'].iloc[0]}
+    apply_formula(df_tribunal, results, 'Meta 1', 'julgados_2025', ['casos_novos_2025', 'dessobrestados_2025', 'suspensos_2025'], 100, den_type='add')
+    apply_formula(df_tribunal, results, 'Meta 2ANT', 'julgm2_ant', ['distm2_ant', 'suspm2_ant'], 100)
+    apply_formula(df_tribunal, results, 'Meta 4A', 'julgm4_a', ['distm4_a', 'suspm4_a'], 1000 / 9)
+    apply_formula(df_tribunal, results, 'Meta 4B', 'julgm4_b', ['distm4_b', 'suspm4_b'], 100)
+    apply_formula(df_tribunal, results, 'Meta 6', 'julgm6_a', ['distm6_a', 'suspm6_a'], 1000 / 7.5)
+    apply_formula(df_tribunal, results, 'Meta 7A', 'julgm7_a', ['distm7_a', 'suspm7_a'], 1000 / 7.5)
+    apply_formula(df_tribunal, results, 'Meta 7B', 'julgm7_b', ['distm7_b', 'suspm7_b'], 1000 / 7.5)
+    apply_formula(df_tribunal, results, 'Meta 8', 'julgm8_a', ['distm8_a', 'suspm8_a'], 1000 / 10)
+    apply_formula(df_tribunal, results, 'Meta 10', 'julgm10_a', ['distm10_a', 'suspm10_a'], 1000 / 10)
+    return results
 
-def calcular_metas_tribunais_superiores(df):
-    """Calcula as metas específicas para os Tribunais Superiores (TST, STJ)."""
-    metas = {}
-    cols_m1 = ['julgados_2025', 'casos_novos_2025', 'dessobrestados_2025', 'suspensos_2025']
-    if all(col in df.columns for col in cols_m1):
-        julgados = pd.to_numeric(df['julgados_2025'], errors='coerce').sum()
-        casos_novos = pd.to_numeric(df['casos_novos_2025'], errors='coerce').sum()
-        dessobrestados = pd.to_numeric(df['dessobrestados_2025'], errors='coerce').sum()
-        suspensos_m1 = pd.to_numeric(df['suspensos_2025'], errors='coerce').sum()
-        denominador_m1 = casos_novos + dessobrestados - suspensos_m1
-        # CORREÇÃO: Usando 'denominador_m1' em vez de 'denominator_m1'
-        metas['meta1'] = (julgados / denominador_m1) * 100 if denominador_m1 > 0 else np.nan
-    else:
-        metas['meta1'] = np.nan
-
-    return metas
-
-# ==============================================================================
-# FUNÇÕES PRINCIPAIS DO PROCESSO ETL
-# ==============================================================================
-
-def extrair_e_consolidar_dados(caminho_arquivos):
-    """Lê todos os CSVs de um padrão, concatena e salva em Consolidado.csv."""
-    print("Iniciando a Etapa 1: Extração e Consolidação dos dados...")
-    lista_arquivos = glob.glob(caminho_arquivos)
-    if not lista_arquivos:
-        print(f"Nenhum arquivo CSV encontrado no padrão '{caminho_arquivos}'. Verifique o diretório.")
-        return None
-
-    lista_dfs = []
-    for arquivo in lista_arquivos:
-        try:
-            df = pd.read_csv(arquivo, sep=',', low_memory=False)
-            lista_dfs.append(df)
-        except Exception as e:
-            print(f"Erro ao ler o arquivo {arquivo}: {e}")
-
-    if not lista_dfs:
-        print("Nenhum arquivo CSV pôde ser lido com sucesso.")
-        return None
-
-    df_consolidado = pd.concat(lista_dfs, ignore_index=True)
-    df_consolidado.to_csv('Consolidado.csv', index=False, sep=';', decimal=',')
-    print("Arquivo 'Consolidado.csv' gerado com sucesso.")
-    return df_consolidado
-
-def transformar_e_carregar_dados(df_consolidado):
-    """Calcula as metas para cada tribunal e salva em ResumoMetas.csv."""
-    if df_consolidado is None:
-        return None
-    print("\nIniciando a Etapa 2: Transformação e Cálculo das Metas...")
-    
-    resultados_finais = []
-    
-    mapa_calculo = {
-        'Justiça Estadual': calcular_metas_justica_estadual,
-        'Justiça do Trabalho': calcular_metas_justica_trabalho,
-        'Justiça Federal': calcular_metas_justica_federal,
-        'Justiça Militar Estadual': calcular_metas_justica_militar_estadual,
-        'Justiça Eleitoral': calcular_metas_justica_eleitoral,
-        'Tribunais Superiores': calcular_metas_tribunais_superiores,
-    }
-
-    tribunais = df_consolidado.groupby('sigla_tribunal')
-    
-    for nome_tribunal, df_tribunal in tribunais:
-        ramo_justica = df_tribunal['ramo_justica'].iloc[0]
-        resultado_tribunal = {'sigla_tribunal': nome_tribunal, 'ramo_justica': ramo_justica}
-        funcao_calculo = mapa_calculo.get(ramo_justica)
-        
-        if funcao_calculo:
-            metas_calculadas = funcao_calculo(df_tribunal)
-            resultado_tribunal.update(metas_calculadas)
-        
-        resultados_finais.append(resultado_tribunal)
-
-    df_resumo = pd.DataFrame(resultados_finais)
-    df_resumo = df_resumo.fillna('NA')
-    df_resumo.to_csv('ResumoMetas.csv', index=False, sep=';', decimal=',')
-    print("Arquivo 'ResumoMetas.csv' gerado com sucesso.")
-    return df_resumo
-
-def gerar_grafico(df_resumo):
-    """Gera um gráfico de barras para comparar a Meta 1 entre os tribunais."""
-    if df_resumo is None or df_resumo.empty:
-        print("Não há dados para gerar o gráfico.")
-        return
-
-    print("\nIniciando a Etapa 3: Geração do Gráfico...")
-    
-    df_grafico = df_resumo[df_resumo['meta1'] != 'NA'].copy()
-    df_grafico['meta1'] = pd.to_numeric(df_grafico['meta1'])
-    df_grafico = df_grafico.sort_values('meta1', ascending=False)
-
-    plt.style.use('seaborn-v0_8-whitegrid')
-    fig, ax = plt.subplots(figsize=(18, 10))
-    
-    bars = ax.bar(df_grafico['sigla_tribunal'], df_grafico['meta1'], color='cornflowerblue')
-
-    ax.set_ylabel('Índice de Desempenho (%)', fontsize=12)
-    ax.set_title('Desempenho da Meta 1 por Tribunal', fontsize=16, weight='bold', pad=20)
-    ax.tick_params(axis='x', rotation=90)
-    
-    ax.axhline(100, color='crimson', linestyle='--', linewidth=2, label='Meta (100%)')
-    ax.legend()
-    
-    for bar in bars:
-        yval = bar.get_height()
-        ax.text(bar.get_x() + bar.get_width()/2.0, yval + 1, f'{yval:.1f}', ha='center', va='bottom', fontsize=8, rotation=90)
-
-    plt.ylim(0, max(df_grafico['meta1'].max() * 1.1, 110))
-    plt.tight_layout()
-    
-    caminho_grafico = 'desempenho_metas.png'
-    plt.savefig(caminho_grafico)
-    print(f"Gráfico salvo com sucesso em '{caminho_grafico}'.")
-
-# ==============================================================================
-# EXECUÇÃO PRINCIPAL
-# ==============================================================================
-
-if __name__ == '__main__':
+# --- LÓGICA PRINCIPAL DE EXECUÇÃO ---
+def main():
     start_time = time.time()
     
-    caminho_csvs = os.path.join('Dados', 'teste_*.csv')
+    data_path = 'Dados/'
+    if not os.path.exists(data_path) or not os.listdir(data_path):
+         print(f"Erro: A pasta '{data_path}' não foi encontrada ou está vazia.")
+         print("Por favor, crie a pasta 'data' e coloque seus arquivos CSV dentro dela antes de executar o script.")
+         return
+
+    all_files = glob.glob(os.path.join(data_path, "*.csv"))
     
-    df_consolidado = extrair_e_consolidar_dados(caminho_csvs)
+    print("Passo 1: Lendo e consolidando os arquivos CSV...")
+    try:
+        # Leitura correta com separador de vírgula e codificação UTF-8
+        df_list = [pd.read_csv(file, sep=',', encoding='utf-8', engine='python') for file in all_files]
+        df_consolidado = pd.concat(df_list, ignore_index=True)
+    except Exception as e:
+        print(f"Ocorreu um erro ao ler os arquivos CSV: {e}")
+        return
+
+    consolidado_filename = 'Consolidado.csv'
+    df_consolidado.to_csv(consolidado_filename, index=False, sep=';', encoding='utf-8-sig')
+    print(f"O arquivo '{consolidado_filename}' foi criado com sucesso.")
+
+    print("\nPasso 2: Transformando os dados e calculando as metas em modo sequencial...")
     
-    if df_consolidado is not None:
-        df_resumo_metas = transformar_e_carregar_dados(df_consolidado)
-        gerar_grafico(df_resumo_metas)
+    # Dicionário de funções de cálculo
+    funcoes_calculo = {
+        'Justiça Estadual': calcular_metas_estadual,
+        'Justiça Eleitoral': calcular_metas_eleitoral,
+        'Justiça do Trabalho': calcular_metas_trabalho,
+        'Justiça Federal': calcular_metas_federal,
+        'Justiça Militar da União': calcular_metas_militar_uniao,
+        'Justiça Militar Estadual': calcular_metas_militar_estadual,
+        'Superior Tribunal de Justiça': calcular_metas_stj,
+        'Tribunal Superior do Trabalho': calcular_metas_tst
+    }
     
+    tribunais = df_consolidado['sigla_tribunal'].unique()
+    all_results = []
+    
+    # Laço FOR sequencial para processar um tribunal de cada vez
+    for sigla in tribunais:
+        df_tribunal = df_consolidado[df_consolidado['sigla_tribunal'] == sigla].copy()
+        ramo = df_tribunal['ramo_justica'].iloc[0]
+        
+        funcao_calculo = None
+        # Lógica de seleção inteligente para lidar com o ramo "Tribunais Superiores"
+        if ramo == 'Tribunais Superiores':
+            if sigla == 'STJ':
+                funcao_calculo = funcoes_calculo.get('Superior Tribunal de Justiça')
+            elif sigla == 'TST':
+                funcao_calculo = funcoes_calculo.get('Tribunal Superior do Trabalho')
+        else:
+            # Mapeamento direto para todos os outros ramos
+            funcao_calculo = funcoes_calculo.get(ramo)
+
+        if funcao_calculo:
+            print(f"  - Processando: {sigla} (Ramo: {ramo})")
+            resultados_tribunal = funcao_calculo(df_tribunal)
+            all_results.append(resultados_tribunal)
+        else:
+            print(f"    - Aviso: Nenhuma função de cálculo definida para o Ramo da Justiça: '{ramo}'. Tribunal '{sigla}' será ignorado.")
+
+    print("Transformação concluída.")
+
+    print("\nPasso 3: Gerando o arquivo 'Resumo Metas.CSV'...")
+    
+    if all_results:
+        df_resumo = pd.DataFrame(all_results)
+        df_resumo.rename(columns={'tribunal': 'sigla_tribunal'}, inplace=True)
+
+        all_meta_columns = [
+            'sigla_tribunal', 'Meta 1', 'Meta 2A', 'Meta 2B', 'Meta 2C', 'Meta 2ANT',
+            'Meta 4A', 'Meta 4B', 'Meta 6', 'Meta 7A', 'Meta 7B', 'Meta 8',
+            'Meta 8A', 'Meta 8B', 'Meta 10', 'Meta 10A', 'Meta 10B'
+        ]
+        df_resumo = df_resumo.reindex(columns=all_meta_columns)
+        df_resumo.fillna('NA', inplace=True)
+        
+        resumo_filename = 'Resumo Metas.CSV'
+        df_resumo.to_csv(resumo_filename, sep=';', encoding='utf-8-sig', index=False)
+        print(f"O arquivo '{resumo_filename}' foi criado com sucesso.")
+    else:
+        print("Aviso: Nenhum resultado foi calculado. O arquivo 'Resumo Metas.CSV' não será gerado.")
+        df_resumo = pd.DataFrame()
+
+    print("\nPasso 4: Gerando o gráfico de comparação...")
+    if not df_resumo.empty and 'Meta 1' in df_resumo.columns:
+        plot_data = df_resumo[['sigla_tribunal', 'Meta 1']].copy()
+        plot_data['Meta 1'] = pd.to_numeric(plot_data['Meta 1'], errors='coerce').fillna(0)
+        plot_data = plot_data[plot_data['Meta 1'] > 0]
+        plot_data.sort_values('Meta 1', inplace=True)
+
+        plt.style.use('seaborn-v0_8-whitegrid')
+        fig, ax = plt.subplots(figsize=(12, max(8, len(plot_data) * 0.5)))
+        
+        bars = ax.barh(plot_data['sigla_tribunal'], plot_data['Meta 1'], color='teal')
+        ax.set_title('Desempenho da Meta 1 por Tribunal', fontsize=16, weight='bold')
+        ax.set_xlabel('Índice de Desempenho (%)', fontsize=12)
+        ax.set_ylabel('Tribunal', fontsize=12)
+        
+        ax.bar_label(bars, fmt='%.2f', padding=3, fontsize=10)
+        
+        if not plot_data.empty:
+            ax.set_xlim(right=plot_data['Meta 1'].max() * 1.15)
+        
+        plt.tight_layout()
+        
+        graph_filename = 'comparativo_metas.png'
+        plt.savefig(graph_filename)
+        print(f"O gráfico '{graph_filename}' foi criado com sucesso.")
+    else:
+        print("Não foi possível gerar o gráfico, pois não há dados válidos para a 'Meta 1'.")
+        
     end_time = time.time()
-    tempo_total = end_time - start_time
-    
-    print(f"\nProcesso concluído em {tempo_total:.2f} segundos.")
+    print(f"\nExecução NÃO-PARALELA concluída em {end_time - start_time:.4f} segundos.")
+
+
+if __name__ == '__main__':
+    main()

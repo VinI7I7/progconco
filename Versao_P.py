@@ -1,208 +1,254 @@
+
 import pandas as pd
-import numpy as np
-import glob
-import matplotlib.pyplot as plt
 import os
+import glob
+import numpy as np
+import matplotlib.pyplot as plt
 import time
 import multiprocessing
-from functools import reduce
 
-# ==============================================================================
-# FUNÇÕES DE CÁLCULO DE METAS (ADAPTADAS PARA RECEBER DICIONÁRIO DE SOMAS)
-# ==============================================================================
 
-def calcular_meta_generica(somas, col_julg, col_dist, col_susp, fator_mult):
-    """Função genérica para calcular a maioria das metas a partir de somas pré-calculadas."""
-    julgados = somas.get(col_julg, 0)
-    distribuidos = somas.get(col_dist, 0)
-    suspensos = somas.get(col_susp, 0)
+def safe_sum(df, column_name):
+    if column_name in df.columns:
+        return pd.to_numeric(df[column_name], errors='coerce').fillna(0).sum()
+    return 0
+
+def calculate_performance(numerator, denominator):
+    if denominator == 0:
+        return 0.0
+    return numerator / denominator
+
+def apply_formula(df, result_dict, meta_name, num_col, den_cols, multiplier, den_type='sub'):
+    numerator = safe_sum(df, num_col)
+    if den_type == 'add':
+        denominator = safe_sum(df, den_cols[0]) + safe_sum(df, den_cols[1]) - safe_sum(df, den_cols[2])
+    else:
+        denominator = safe_sum(df, den_cols[0]) - safe_sum(df, den_cols[1])
+    performance = calculate_performance(numerator, denominator)
+    result_dict[meta_name] = performance * multiplier
+
+def calcular_metas_estadual(df_tribunal):
+    results = {'sigla_tribunal': df_tribunal['sigla_tribunal'].iloc[0]}
+    apply_formula(df_tribunal, results, 'Meta 1', 'julgados_2025', ['casos_novos_2025', 'dessobrestados_2025', 'suspensos_2025'], 100, den_type='add')
+    apply_formula(df_tribunal, results, 'Meta 2A', 'julgm2_a', ['distm2_a', 'suspm2_a'], 1000 / 8)
+    apply_formula(df_tribunal, results, 'Meta 2B', 'julgm2_b', ['distm2_b', 'suspm2_b'], 1000 / 9)
+    apply_formula(df_tribunal, results, 'Meta 2C', 'julgm2_c', ['distm2_c', 'suspm2_c'], 1000 / 9.5)
+    apply_formula(df_tribunal, results, 'Meta 2ANT', 'julgm2_ant', ['distm2_ant', 'suspm2_ant'], 100)
+    apply_formula(df_tribunal, results, 'Meta 4A', 'julgm4_a', ['distm4_a', 'suspm4_a'], 1000 / 6.5)
+    apply_formula(df_tribunal, results, 'Meta 4B', 'julgm4_b', ['distm4_b', 'suspm4_b'], 100)
+    apply_formula(df_tribunal, results, 'Meta 6', 'julgm6_a', ['distm6_a', 'suspm6_a'], 100)
+    apply_formula(df_tribunal, results, 'Meta 7A', 'julgm7_a', ['distm7_a', 'suspm7_a'], 1000 / 5)
+    apply_formula(df_tribunal, results, 'Meta 7B', 'julgm7_b', ['distm7_b', 'suspm7_b'], 1000 / 5)
+    apply_formula(df_tribunal, results, 'Meta 8A', 'julgm8_a', ['distm8_a', 'suspm8_a'], 1000 / 7.5)
+    apply_formula(df_tribunal, results, 'Meta 8B', 'julgm8_b', ['distm8_b', 'suspm8_b'], 1000 / 9)
+    apply_formula(df_tribunal, results, 'Meta 10A', 'julgm10_a', ['distm10_a', 'suspm10_a'], 1000 / 9)
+    apply_formula(df_tribunal, results, 'Meta 10B', 'julgm10_b', ['distm10_b', 'suspm10_b'], 1000 / 10)
+    return results
+
+def calcular_metas_eleitoral(df_tribunal):
+    results = {'sigla_tribunal': df_tribunal['sigla_tribunal'].iloc[0]}
+    apply_formula(df_tribunal, results, 'Meta 1', 'julgados_2025', ['casos_novos_2025', 'dessobrestados_2025', 'suspensos_2025'], 100, den_type='add')
+    apply_formula(df_tribunal, results, 'Meta 2A', 'julgm2_a', ['distm2_a', 'suspm2_a'], 1000 / 7.0)
+    apply_formula(df_tribunal, results, 'Meta 2B', 'julgm2_b', ['distm2_b', 'suspm2_b'], 1000 / 9.9)
+    apply_formula(df_tribunal, results, 'Meta 2ANT', 'julgm2_ant', ['distm2_ant', 'suspm2_ant'], 100)
+    apply_formula(df_tribunal, results, 'Meta 4A', 'julgm4_a', ['distm4_a', 'suspm4_a'], 1000 / 9)
+    apply_formula(df_tribunal, results, 'Meta 4B', 'julgm4_b', ['distm4_b', 'suspm4_b'], 1000 / 5)
+    return results
+
+def calcular_metas_trabalho(df_tribunal):
+    results = {'sigla_tribunal': df_tribunal['sigla_tribunal'].iloc[0]}
+    apply_formula(df_tribunal, results, 'Meta 1', 'julgados_2025', ['casos_novos_2025', 'dessobrestados_2025', 'suspensos_2025'], 100, den_type='add')
+    apply_formula(df_tribunal, results, 'Meta 2A', 'julgm2_a', ['distm2_a', 'suspm2_a'], 1000 / 9.4)
+    apply_formula(df_tribunal, results, 'Meta 2ANT', 'julgm2_ant', ['distm2_ant', 'suspm2_ant'], 100)
+    return results
+
+def calcular_metas_federal(df_tribunal):
+    results = {'sigla_tribunal': df_tribunal['sigla_tribunal'].iloc[0]}
+    apply_formula(df_tribunal, results, 'Meta 1', 'julgados_2025', ['casos_novos_2025', 'dessobrestados_2025', 'suspensos_2025'], 100, den_type='add')
+    apply_formula(df_tribunal, results, 'Meta 2A', 'julgm2_a', ['distm2_a', 'suspm2_a'], 1000 / 8.5)
+    apply_formula(df_tribunal, results, 'Meta 2B', 'julgm2_b', ['distm2_b', 'suspm2_b'], 100)
+    apply_formula(df_tribunal, results, 'Meta 2ANT', 'julgm2_ant', ['distm2_ant', 'suspm2_ant'], 100)
+    apply_formula(df_tribunal, results, 'Meta 4A', 'julgm4_a', ['distm4_a', 'suspm4_a'], 1000 / 7)
+    apply_formula(df_tribunal, results, 'Meta 4B', 'julgm4_b', ['distm4_b', 'suspm4_b'], 100)
+    apply_formula(df_tribunal, results, 'Meta 6', 'julgm6_a', ['distm6_a', 'suspm6_a'], 1000 / 3.5)
+    apply_formula(df_tribunal, results, 'Meta 7A', 'julgm7_a', ['distm7_a', 'suspm7_a'], 1000 / 3.5)
+    apply_formula(df_tribunal, results, 'Meta 7B', 'julgm7_b', ['distm7_b', 'suspm7_b'], 1000 / 3.5)
+    apply_formula(df_tribunal, results, 'Meta 8A', 'julgm8_a', ['distm8_a', 'suspm8_a'], 1000 / 7.5)
+    apply_formula(df_tribunal, results, 'Meta 8B', 'julgm8_b', ['distm8_b', 'suspm8_b'], 1000 / 9)
+    apply_formula(df_tribunal, results, 'Meta 10A', 'julgm10_a', ['distm10_a', 'suspm10_a'], 100)
+    return results
+
+def calcular_metas_militar_uniao(df_tribunal):
+    results = {'sigla_tribunal': df_tribunal['sigla_tribunal'].iloc[0]}
+    apply_formula(df_tribunal, results, 'Meta 1', 'julgados_2025', ['casos_novos_2025', 'dessobrestados_2025', 'suspensos_2025'], 100, den_type='add')
+    apply_formula(df_tribunal, results, 'Meta 2A', 'julgm2_a', ['distm2_a', 'suspm2_a'], 1000 / 9.5)
+    apply_formula(df_tribunal, results, 'Meta 2B', 'julgm2_b', ['distm2_b', 'suspm2_b'], 1000 / 9.9)
+    apply_formula(df_tribunal, results, 'Meta 2ANT', 'julgm2_ant', ['distm2_ant', 'suspm2_ant'], 100)
+    apply_formula(df_tribunal, results, 'Meta 4A', 'julgm4_a', ['distm4_a', 'suspm4_a'], 1000 / 9.5)
+    apply_formula(df_tribunal, results, 'Meta 4B', 'julgm4_b', ['distm4_b', 'suspm4_b'], 1000 / 9.9)
+    return results
+
+def calcular_metas_militar_estadual(df_tribunal):
+    results = {'sigla_tribunal': df_tribunal['sigla_tribunal'].iloc[0]}
+    apply_formula(df_tribunal, results, 'Meta 1', 'julgados_2025', ['casos_novos_2025', 'dessobrestados_2025', 'suspensos_2025'], 100, den_type='add')
+    apply_formula(df_tribunal, results, 'Meta 2A', 'julgm2_a', ['distm2_a', 'suspm2_a'], 1000 / 9)
+    apply_formula(df_tribunal, results, 'Meta 2B', 'julgm2_b', ['distm2_b', 'suspm2_b'], 1000 / 9.5)
+    apply_formula(df_tribunal, results, 'Meta 2ANT', 'julgm2_ant', ['distm2_ant', 'suspm2_ant'], 100)
+    apply_formula(df_tribunal, results, 'Meta 4A', 'julgm4_a', ['distm4_a', 'suspm4_a'], 1000 / 9.5)
+    apply_formula(df_tribunal, results, 'Meta 4B', 'julgm4_b', ['distm4_b', 'suspm4_b'], 1000 / 9.9)
+    return results
+
+def calcular_metas_tst(df_tribunal):
+    results = {'sigla_tribunal': df_tribunal['sigla_tribunal'].iloc[0]}
+    apply_formula(df_tribunal, results, 'Meta 1', 'julgados_2025', ['casos_novos_2025', 'dessobrestados_2025', 'suspensos_2025'], 100, den_type='add')
+    apply_formula(df_tribunal, results, 'Meta 2A', 'julgm2_a', ['distm2_a', 'suspm2_a'], 1000 / 9.5)
+    apply_formula(df_tribunal, results, 'Meta 2B', 'julgm2_b', ['distm2_b', 'suspm2_b'], 1000 / 9.9)
+    apply_formula(df_tribunal, results, 'Meta 2ANT', 'julgm2_ant', ['distm2_ant', 'suspm2_ant'], 100)
+    return results
+
+def calcular_metas_stj(df_tribunal):
+    results = {'sigla_tribunal': df_tribunal['sigla_tribunal'].iloc[0]}
+    apply_formula(df_tribunal, results, 'Meta 1', 'julgados_2025', ['casos_novos_2025', 'dessobrestados_2025', 'suspensos_2025'], 100, den_type='add')
+    apply_formula(df_tribunal, results, 'Meta 2ANT', 'julgm2_ant', ['distm2_ant', 'suspm2_ant'], 100)
+    apply_formula(df_tribunal, results, 'Meta 4A', 'julgm4_a', ['distm4_a', 'suspm4_a'], 1000 / 9)
+    apply_formula(df_tribunal, results, 'Meta 4B', 'julgm4_b', ['distm4_b', 'suspm4_b'], 100)
+    apply_formula(df_tribunal, results, 'Meta 6', 'julgm6_a', ['distm6_a', 'suspm6_a'], 1000 / 7.5)
+    apply_formula(df_tribunal, results, 'Meta 7A', 'julgm7_a', ['distm7_a', 'suspm7_a'], 1000 / 7.5)
+    apply_formula(df_tribunal, results, 'Meta 7B', 'julgm7_b', ['distm7_b', 'suspm7_b'], 1000 / 7.5)
+    apply_formula(df_tribunal, results, 'Meta 8', 'julgm8_a', ['distm8_a', 'suspm8_a'], 1000 / 10)
+    apply_formula(df_tribunal, results, 'Meta 10', 'julgm10_a', ['distm10_a', 'suspm10_a'], 1000 / 10)
+    return results
+
+# --- NOVA FUNÇÃO "WORKER" PARA O PARALELISMO ---
+
+# Dicionário global de funções para que o processo filho possa acessá-lo
+FUNCOES_CALCULO = {
+    'Justiça Estadual': calcular_metas_estadual,
+    'Justiça Eleitoral': calcular_metas_eleitoral,
+    'Justiça do Trabalho': calcular_metas_trabalho,
+    'Justiça Federal': calcular_metas_federal,
+    'Justiça Militar da União': calcular_metas_militar_uniao,
+    'Justiça Militar Estadual': calcular_metas_militar_estadual,
+    'Superior Tribunal de Justiça': calcular_metas_stj,
+    'Tribunal Superior do Trabalho': calcular_metas_tst
+}
+
+def processar_tribunal(df_tribunal):
+    """
+    Função "worker" que será executada em paralelo para cada tribunal.
+    """
+    sigla = df_tribunal['sigla_tribunal'].iloc[0]
+    ramo = df_tribunal['ramo_justica'].iloc[0]
     
-    denominador = distribuidos - suspensos
-    if denominador == 0:
-        return np.nan
-    return (julgados / denominador) * fator_mult
+    funcao_calculo = None
+    # Lógica de seleção inteligente
+    if ramo == 'Tribunais Superiores':
+        if sigla == 'STJ':
+            funcao_calculo = FUNCOES_CALCULO.get('Superior Tribunal de Justiça')
+        elif sigla == 'TST':
+            funcao_calculo = FUNCOES_CALCULO.get('Tribunal Superior do Trabalho')
+    else:
+        funcao_calculo = FUNCOES_CALCULO.get(ramo)
 
-def calcular_metas_justica_estadual(somas):
-    """Calcula as metas da Justiça Estadual a partir de um dicionário de somas."""
-    metas = {}
-    julgados = somas.get('julgados_2025_sum', 0)
-    casos_novos = somas.get('casos_novos_2025_sum', 0)
-    dessobrestados = somas.get('dessobrestados_2025_sum', 0)
-    suspensos_m1 = somas.get('suspensos_2025_sum', 0)
-    denominador_m1 = casos_novos + dessobrestados - suspensos_m1
-    metas['meta1'] = (julgados / denominador_m1) * 100 if denominador_m1 > 0 else np.nan
-    
-    metas['meta2a'] = calcular_meta_generica(somas, 'julgadom2_a_sum', 'dism2_a_sum', 'susm2_a_sum', (1000/8))
-    metas['meta2b'] = calcular_meta_generica(somas, 'julgadom2_b_sum', 'dism2_b_sum', 'susm2_b_sum', (1000/9))
-    metas['meta4a'] = calcular_meta_generica(somas, 'julgadom4_a_sum', 'dism4_a_sum', 'susm4_a_sum', (1000/6.5))
-    metas['meta4b'] = calcular_meta_generica(somas, 'julgadom4_b_sum', 'dism4_b_sum', 'susm4_b_sum', 100)
-    metas['meta6'] = calcular_meta_generica(somas, 'julgadom6_sum', 'dism6_sum', 'susm6_sum', 100)
-    metas['meta8a'] = calcular_meta_generica(somas, 'julgadom8_a_sum', 'dism8_a_sum', 'susm8_a_sum', (1000/7.5))
-    metas['meta8b'] = calcular_meta_generica(somas, 'julgadom8_b_sum', 'dism8_b_sum', 'susm8_b_sum', (1000/9))
-    return metas
-
-# ... (Funções de cálculo para outros ramos da justiça seriam adaptadas de forma similar) ...
-# Para manter o exemplo conciso, as outras funções seguem o mesmo padrão.
-# O código completo teria todas as funções adaptadas.
-
-def calcular_metas_finais(args):
-    """Worker (Reduce): Recebe somas agregadas e calcula as metas finais."""
-    nome_tribunal, dados_agregados = args
-    ramo_justica = dados_agregados['ramo_justica']
-    somas = dados_agregados['somas']
-
-    mapa_calculo = {
-        'Justiça Estadual': calcular_metas_justica_estadual,
-        # Adicionar outras funções adaptadas aqui
-        # 'Justiça do Trabalho': calcular_metas_justica_trabalho_adaptada,
-        # etc.
-    }
-
-    resultado_final = {'sigla_tribunal': nome_tribunal, 'ramo_justica': ramo_justica}
-    funcao_calculo = mapa_calculo.get(ramo_justica)
-    
     if funcao_calculo:
-        metas_calculadas = funcao_calculo(somas)
-        resultado_final.update(metas_calculadas)
-        
-    return resultado_final
+        # O print foi movido para dentro do if para não poluir a saída com tribunais ignorados
+        print(f"  - Processando: {sigla} (Ramo: {ramo})")
+        return funcao_calculo(df_tribunal)
+    else:
+        # Este aviso só aparecerá se um ramo realmente não for encontrado
+        print(f"    - Aviso: Nenhuma função de cálculo definida para o Ramo da Justiça: '{ramo}'. Tribunal '{sigla}' será ignorado.")
+        return None
 
-# ==============================================================================
-# FUNÇÕES WORKER PARA PARALELIZAÇÃO (ESTRATÉGIA MAP-REDUCE)
-# ==============================================================================
-
-def processar_arquivo_para_somas(caminho_arquivo):
-    """Worker (Map): Lê um arquivo CSV, agrupa por tribunal e retorna somas parciais."""
-    try:
-        df = pd.read_csv(caminho_arquivo, sep=',', low_memory=False)
-        # Identifica colunas numéricas que precisam ser somadas
-        colunas_para_soma = [col for col in df.columns if 'julg' in col or 'dist' in col or 'susp' in col or 'casos' in col or 'dessobrestados' in col]
-        
-        # Agrupa por tribunal dentro do arquivo
-        grouped = df.groupby('sigla_tribunal')
-        
-        resultados_parciais = {}
-        for nome, grupo in grouped:
-            somas = grupo[colunas_para_soma].sum().to_dict()
-            # Adiciona sufixo '_sum' para clareza
-            somas = {f"{k}_sum": v for k, v in somas.items()}
-            resultados_parciais[nome] = {
-                'somas': somas,
-                'ramo_justica': grupo['ramo_justica'].iloc[0] # Pega o ramo da justiça
-            }
-        return resultados_parciais
-    except Exception as e:
-        print(f"Erro ao processar arquivo {caminho_arquivo}: {e}")
-        return {}
-
-# ==============================================================================
-# FUNÇÕES PRINCIPAIS DO PROCESSO (ESTRATÉGIA OTIMIZADA)
-# ==============================================================================
-
-def gerar_consolidado_eficiente(caminho_glob):
-    """Gera o Consolidado.csv de forma eficiente em memória, lendo em pedaços."""
-    print("Iniciando a geração do 'Consolidado.csv' (modo eficiente em memória)...")
-    lista_arquivos = glob.glob(caminho_glob)
-    if not lista_arquivos:
-        return
-
-    output_file = 'Consolidado.csv'
-    
-    # Escreve o cabeçalho usando o primeiro arquivo
-    try:
-        df_header = pd.read_csv(lista_arquivos[0], nrows=0, sep=',')
-        df_header.to_csv(output_file, index=False, sep=';', decimal=',')
-
-        # Processa cada arquivo em pedaços (chunks) para não sobrecarregar a memória
-        chunksize = 100_000
-        for f in lista_arquivos:
-            with pd.read_csv(f, chunksize=chunksize, sep=',') as reader:
-                for chunk in reader:
-                    chunk.to_csv(output_file, mode='a', header=False, index=False, sep=';', decimal=',')
-        print("'Consolidado.csv' gerado com sucesso.")
-    except Exception as e:
-        print(f"Falha ao gerar 'Consolidado.csv': {e}")
-
-
-def gerar_grafico(df_resumo):
-    """Gera um gráfico de barras para comparar a Meta 1 entre os tribunais."""
-    if df_resumo is None or df_resumo.empty:
-        print("Não há dados para gerar o gráfico.")
-        return
-    print("\nIniciando a Etapa 3: Geração do Gráfico...")
-    
-    df_grafico = df_resumo[df_resumo['meta1'].notna() & (df_resumo['meta1'] != 'NA')].copy()
-    df_grafico['meta1'] = pd.to_numeric(df_grafico['meta1'])
-    df_grafico = df_grafico.sort_values('meta1', ascending=False)
-
-    plt.style.use('seaborn-v0_8-whitegrid')
-    fig, ax = plt.subplots(figsize=(18, 10))
-    
-    bars = ax.bar(df_grafico['sigla_tribunal'], df_grafico['meta1'], color='rebeccapurple')
-
-    ax.set_ylabel('Índice de Desempenho (%)', fontsize=12)
-    ax.set_title('Desempenho da Meta 1 por Tribunal (Estratégia Otimizada)', fontsize=16, weight='bold', pad=20)
-    ax.tick_params(axis='x', rotation=90)
-    
-    ax.axhline(100, color='crimson', linestyle='--', linewidth=2, label='Meta (100%)')
-    ax.legend()
-    
-    for bar in bars:
-        yval = bar.get_height()
-        ax.text(bar.get_x() + bar.get_width()/2.0, yval + 1, f'{yval:.1f}', ha='center', va='bottom', fontsize=8, rotation=90)
-
-    plt.ylim(0, max(df_grafico['meta1'].max() * 1.1, 110))
-    plt.tight_layout()
-    
-    caminho_grafico = 'desempenho_metas_otimizado.png'
-    plt.savefig(caminho_grafico)
-    print(f"Gráfico salvo com sucesso em '{caminho_grafico}'.")
-
-# ==============================================================================
-# EXECUÇÃO PRINCIPAL
-# ==============================================================================
-
-if __name__ == '__main__':
-    multiprocessing.freeze_support()
+# --- LÓGICA PRINCIPAL DE EXECUÇÃO ---
+def main():
     start_time = time.time()
     
-    caminho_csvs_glob = os.path.join('Dados', 'teste_*.csv')
-    num_processos = os.cpu_count()
-    print(f"Iniciando processamento otimizado com {num_processos} processos...")
+    data_path = '/'
+    if not os.path.exists(data_path) or not os.listdir(data_path):
+         print(f"Erro: A pasta '{data_path}' não foi encontrada ou está vazia.")
+         return
 
-    # ETAPA 0: Gerar Consolidado.csv de forma eficiente (sequencial, mas leve)
-    gerar_consolidado_eficiente(caminho_csvs_glob)
-
-    # ETAPA 1 (MAP): Processar cada arquivo em paralelo para obter somas parciais
-    print("\nETAPA 1 (MAP): Lendo arquivos e calculando somas parciais em paralelo...")
-    lista_arquivos = glob.glob(caminho_csvs_glob)
-    with multiprocessing.Pool(processes=num_processos) as pool:
-        resultados_parciais_lista = pool.map(processar_arquivo_para_somas, lista_arquivos)
-
-    # ETAPA 1.5 (COMBINE): Agregar os resultados parciais (rápido, sequencial)
-    print("Combinando resultados parciais...")
-    somas_agregadas = {}
-    for dic_parcial in resultados_parciais_lista:
-        for tribunal, dados in dic_parcial.items():
-            if tribunal not in somas_agregadas:
-                somas_agregadas[tribunal] = {'ramo_justica': dados['ramo_justica'], 'somas': {}}
-            
-            for chave_soma, valor_soma in dados['somas'].items():
-                somas_agregadas[tribunal]['somas'][chave_soma] = somas_agregadas[tribunal]['somas'].get(chave_soma, 0) + valor_soma
-
-    # ETAPA 2 (REDUCE): Calcular as metas finais em paralelo usando as somas agregadas
-    print("\nETAPA 2 (REDUCE): Calculando metas finais em paralelo...")
-    with multiprocessing.Pool(processes=num_processos) as pool:
-        resultados_finais = pool.map(calcular_metas_finais, somas_agregadas.items())
+    all_files = glob.glob(os.path.join(data_path, "*.csv"))
     
-    # Finalização
-    df_resumo = pd.DataFrame(resultados_finais)
-    df_resumo = df_resumo.fillna('NA')
-    df_resumo.to_csv('ResumoMetas.csv', index=False, sep=';', decimal=',')
-    print("Arquivo 'ResumoMetas.csv' gerado com sucesso.")
+    print("Passo 1: Lendo e consolidando os arquivos CSV...")
+    try:
+        df_list = [pd.read_csv(file, sep=',', encoding='utf-8', engine='python') for file in all_files]
+        df_consolidado = pd.concat(df_list, ignore_index=True)
+    except Exception as e:
+        print(f"Ocorreu um erro ao ler os arquivos CSV: {e}")
+        return
 
-    gerar_grafico(df_resumo)
+    consolidado_filename = 'Consolidado.csv'
+    df_consolidado.to_csv(consolidado_filename, index=False, sep=';', encoding='utf-8-sig')
+    print(f"O arquivo '{consolidado_filename}' foi criado com sucesso.")
 
+    print("\nPasso 2: Transformando os dados e calculando as metas em paralelo...")
+    
+    tribunais = df_consolidado['sigla_tribunal'].unique()
+    lista_dfs_tribunais = [df_consolidado[df_consolidado['sigla_tribunal'] == t].copy() for t in tribunais]
+    
+    all_results = []
+    try:
+        with multiprocessing.Pool(processes=os.cpu_count()) as pool:
+            all_results_list = pool.map(processar_tribunal, lista_dfs_tribunais)
+        all_results = [res for res in all_results_list if res is not None]
+    except Exception as e:
+        print(f"Ocorreu um erro durante o processamento paralelo: {e}")
+
+    print("Transformação concluída.")
+
+    print("\nPasso 3: Gerando o arquivo 'Resumo Metas.CSV'...")
+    
+    if all_results:
+        df_resumo = pd.DataFrame(all_results)
+        df_resumo.rename(columns={'tribunal': 'sigla_tribunal'}, inplace=True)
+
+        all_meta_columns = [
+            'sigla_tribunal', 'Meta 1', 'Meta 2A', 'Meta 2B', 'Meta 2C', 'Meta 2ANT',
+            'Meta 4A', 'Meta 4B', 'Meta 6', 'Meta 7A', 'Meta 7B', 'Meta 8',
+            'Meta 8A', 'Meta 8B', 'Meta 10', 'Meta 10A', 'Meta 10B'
+        ]
+        df_resumo = df_resumo.reindex(columns=all_meta_columns)
+        df_resumo.fillna('NA', inplace=True)
+        
+        resumo_filename = 'Resumo Metas.CSV'
+        df_resumo.to_csv(resumo_filename, sep=';', encoding='utf-8-sig', index=False)
+        print(f"O arquivo '{resumo_filename}' foi criado com sucesso.")
+    else:
+        print("Aviso: Nenhum resultado foi calculado. O arquivo 'Resumo Metas.CSV' não será gerado.")
+        df_resumo = pd.DataFrame()
+
+    print("\nPasso 4: Gerando o gráfico de comparação...")
+    if not df_resumo.empty and 'Meta 1' in df_resumo.columns:
+        plot_data = df_resumo[['sigla_tribunal', 'Meta 1']].copy()
+        plot_data['Meta 1'] = pd.to_numeric(plot_data['Meta 1'], errors='coerce').fillna(0)
+        plot_data = plot_data[plot_data['Meta 1'] > 0]
+        plot_data.sort_values('Meta 1', inplace=True)
+
+        plt.style.use('seaborn-v0_8-whitegrid')
+        fig, ax = plt.subplots(figsize=(12, max(8, len(plot_data) * 0.5)))
+        
+        bars = ax.barh(plot_data['sigla_tribunal'], plot_data['Meta 1'], color='cornflowerblue')
+        ax.set_title('Desempenho da Meta 1 por Tribunal', fontsize=16, weight='bold')
+        ax.set_xlabel('Índice de Desempenho (%)', fontsize=12)
+        ax.set_ylabel('Tribunal', fontsize=12)
+        
+        ax.bar_label(bars, fmt='%.2f', padding=3, fontsize=10)
+        
+        if not plot_data.empty:
+            ax.set_xlim(right=plot_data['Meta 1'].max() * 1.15)
+        
+        plt.tight_layout()
+        
+        graph_filename = 'comparativo_metas.png'
+        plt.savefig(graph_filename)
+        print(f"O gráfico '{graph_filename}' foi criado com sucesso.")
+    else:
+        print("Não foi possível gerar o gráfico, pois não há dados válidos para a 'Meta 1'.")
+        
     end_time = time.time()
-    tempo_total = end_time - start_time
-    print(f"\nProcesso OTIMIZADO concluído em {tempo_total:.2f} segundos.")
+    print(f"\nExecução PARALELA concluída em {end_time - start_time:.4f} segundos.")
+
+
+if __name__ == '__main__':
+    main()
